@@ -747,13 +747,14 @@ def main():
       sys.exit()
     else:
     # we have data, go ahead
-    #  do_loop(data_rows)
+      do_loop(data_rows)
     # INSERT to the database
-    #  upload_flow_data(data_rows)
-    #  upload_model_timing(data_rows)
-    #  copy_to_archive(datadir)
-    #  send_alerts()
-			send_special_alert()
+      upload_flow_data(data_rows)
+      upload_model_timing(data_rows)
+      copy_to_archive(datadir)
+    # Send email alerts
+      send_alerts()
+      send_special_alert()
 
   precip_dir = get_latest_precipdir()
   if precip_dir is None:
