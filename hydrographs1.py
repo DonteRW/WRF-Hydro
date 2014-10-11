@@ -16,6 +16,7 @@ Options:
 
 Updates:
     20140920 - changed update_maxflows routine to use station_num instead of id
+	20141006 - Added function to call GRASS script and create rain maps
 """
 
 import matplotlib
@@ -116,65 +117,6 @@ def send_alerts():
     finally:
       svr.quit()
 
-
-def send_special_alert():
-	"""
-	Sends an alert email to only 1 address 
-	when any of the hydrostations will have a max_flow > 1.0 cubic meter per hr
-	"""
-	global host
-	global dbname
-	global user
-	global password
-
-	conn_string = "host='"+host+"' dbname='"+dbname+"' user='"+user+"' password='"+password+"'"
-	try:
-		conn = psycopg2.connect(conn_string)
-		curs = conn.cursor()
-		sql = "SELECT * FROM station_alert_list;"
-		curs.execute(sql)
-		station_list = curs.fetchall()
-	except psycopg2.DatabaseError, e:
-		logging.error('Error %s',	e)
-		sys.exit(1)
-	
-	cnt_list=len(station_list)
-	if (cnt_list == 0):
-		logging.info ("No stations with flow above 1 cubic meter.")	
-	else:
-		logging.info ("Emailing list of %s stations with flow above 1 cubic meter." % cnt_list)
-	# smtp connection details from conf file
-		smtp_user = config.get("SMTP","smtp_user")
-		smtp_pass = config.get("SMTP", "smtp_pass")
-		smtp_server = config.get("SMTP", "smtp_server")
-		smtp_port = config.getint("SMTP", "smtp_port")
-		
-		svr = smtplib.SMTP(smtp_server, smtp_port)
-		sendfrom = 'floodalerts@gmail.com'
-		rcptto = 'floodalerts@gmail.com'
-
-		body_text = "מספר התחנות עם זרימה מעל 1 קוב: %s\n" % cnt_list
-		body_text += "<table><tr><th>מס. תחנה</th><th>שם תחנה</th><th>זרימה מקס.</th><tr>"
-		for r in station_list:
-			body_text += "<tr><td>%s</td><td>%s</td><td>%s</td></tr>" % (str(r[0]),str(r[1]),str(int(r[3])))
-
-		body_text += "</table>"
-
-		msg = MIMEText(body_text, 'html')
-		msg['From'] = sendfrom
-		msg['To'] = rcptto
-		msg['Subject'] = "Stations with flow above 1 cubic meter"
-		# message is ready, perform the send
-		try:
-			svr.ehlo()
-			svr.starttls()
-			svr.ehlo()
-			svr.login(smtp_user,smtp_pass)
-			svr.sendmail(sendfrom, rcptto, msg.as_string())
-		except smtplib.SMTPException, e:
-			logging.error("SMTP failed: %s" % str(e))
-		finally:
-			svr.quit()	
 
 
 def probability_period(l):
@@ -456,17 +398,19 @@ def get_latest_precipdir():
         logging.warning( "Can't access timestamp file: %s", e.strerror)
         last_ts = 0
         f = open(ts_file, "w")
+        return None
 
-    new_precip_dir = None
+    new_csv_dir = None
     for d in os.listdir(img_path):
-        if os.path.isdir(os.path.join(img_path,d)):
-            logging.debug("Trying path: %s", os.path.join(img_path,d,precip_file))
+	try_dir = os.path.join(img_path, d)
+        if os.path.isdir(try_dir)):
+            logging.debug("Trying path: %s", os.path.join(try_dir, precip_file))
             try:
-                ts = int(os.path.getmtime(os.path.join(img_path,d,precip_file)))
+                ts = int(os.path.getmtime(os.path.join(try_dir,precip_file)))
             # Compare timestamp for each frxst file in each subdir 
             # with the value from the last timestamp file
                 if ts > last_ts:
-                    new_precip_dir = d
+                    new_csv_dir = d
     
             except OSError as e:
                 logging.warning("Precipitation file in subdir: %s not yet available. %s", d, e.strerror)
@@ -474,30 +418,130 @@ def get_latest_precipdir():
   # If there is no newer frxst file, return None
   # otherwise return the subdir of the new data
   # and write out the new timestamp to the last timestamp file (for next time)
-    if new_precip_dir is None:
-        logging.info("No new data file")
+    if new_csv_dir is None:
+        logging.info("No new precipitation file")
         f.close()
         return None
 
     else:
         f.close()
-        logging.info("Using precipitation directory: %s", new_precip_dir)
+        logging.info("Using precipitation directory: %s", new_csv_dir)
     
-    return new_precip_dir
+    return new_csv_dir
 
 
-def parse_precip_data(new_precip_dir):
+def parse_precip_data(new_csv_dir):
     """
     Extract the set of precip csv files from tar.gz 
     into the same directory
+		Create a target directory for the new precip maps in website dir structure
     """
-    target = os.path.join(img_path, new_precip_dir)
-    p = tarfile.open(os.path.join(target,precip_file))
-    p.extractall(path=target)
-    p.close()
-    cnt = len([f for f in os.listdir(target) 
-             if f.endswith('.txt') and os.path.isfile(os.path.join(target, f))])
-    return cnt
+	global img_path
+	global out_precip_path
+
+	img_target = os.path.join(img_path, new_csv_dir)
+	p = tarfile.open(os.path.join(img_target,precip_file))
+	p.extractall(path=img_target)
+	p.close()
+	cnt = len([f for f in os.listdir(img_target) 
+             if f.endswith('.txt') and os.path.isfile(os.path.join(img_target, f))])
+
+	logging.info("Unzipped %s csv files into directory: %s", (cnt,img_target))
+
+	try:
+		precip_target = os.path.join(out_precip_path, new_csv_dir)
+		os.mkdir(precip_target)
+		logging.info("Created directory: %s for precipitation maps" % (precip_target,))
+		return precip_target
+	except OSError as e:
+		logging.error("Creating target directory %s for precipitation maps FAILED. %s" % (precip_target, e.strerror))
+		return None
+
+
+def create_precip_images(img_target, precip_target):
+	"""
+	Run a GRASS session to read all precipitation text files, create rasters
+	overlay with certain vectors and export to png files. 
+	Then call imagemagick to make an animated gif
+	"""
+
+	# Import required GRASS modules
+	import grass.script as grass
+	import grass.script.setup as gsetup
+	# define GRASS DATABASE
+	gisdb = os.path.join(os.path.expanduser("~"), "grass")
+	os.environ['GISDBASE'] = gisdb
+	# specify (existing) location and mapset
+	location = "WGS84"
+	mapset   = "precip"
+	# Set GISBASE environment variable
+	os.environ['GISBASE'] = "/usr/lib64/grass-6.4.2"
+	os.environ['PATH'] += os.pathsep + os.path.join(gisbase, 'extrabin')
+	gpydir = os.path.join(gisbase, "etc", "python")
+	sys.path.append(gpydir)
+ 
+	# launch session
+	gsetup.init(gisbase, gisdb, location, mapset)
+
+	# Run GRASS commands as 'ihs' user
+	from pwd import getpwnam
+	try:
+		u = getpwnam('ihs')[2]
+		os.setuid(u)
+		first = True
+		cnt = 0
+		for c in glob.glob(img_target+"/*.txt"):
+		# get basename of each csv file
+			precip_rast = os.path.splitext(os.path.basename(c))[0]
+		# Use the first file to set GRASS region
+			if first:
+				first = False
+				reg_args="input=%s, output=%s, fs=%s" % (c,precip_rast,",")
+				region = grass.read_command('r.in.xyz',flags="sg", quiet=True, kwargs=reg_args)
+				grass.run_command("g.region", quiet=True, kwargs=region)
+
+		# Continue with the rest of the process
+			xyz_args = 'input=%s, output=%s, fs=%s, method="mean"' % (c, precip_rast, ",")
+			grass.run_command('r.in.xyz', quiet=True, kwargs=xyz_args)
+			grass.run_command('r.null', quiet=True, map=precip_rast, setnull=0)
+			precip_rule_file = os.path.join(os.path.expanduser('~'), "precip_colors")
+			grass.run_command('r.colors', quiet=True,  map=precip_rast, rules=precip_rule_file)
+			png_file = precip_rast+".png"
+			os.environ['GRASS_PNGFILE'] = os.path.join(precip_target,png_file)
+			grass.run_command('d.mon', quiet=True start="PNG")
+			water_args = "map=%s, type=%s, color=$s" % ("water_bodies@precip", "boundary", "160:200:225")
+			grass.run_command('d.vect', quiet=True, kwargs=water_args)
+        		grass.run_command('d.vect', quiet=True, map="border_il_wbank@precip", _type="boundary")
+			grass.run_command('d.vect', quiet=True, map="basins@precip", _type="boundary" color="brown"
+			city_args="map=%s, type=%s, display=%s, icon=%s, size=%s, color=%s, attrcol=%s, lcolor=%s, lsize=%s" % ("mideast_cities@precip", "point", "shape,attr", "basic/point", 8, "orange", "name", "orange", =6)
+			grass.run_command('d.vect', quiet=True, kwargs=city_args)
+			title=precip_rast[11:]
+			title_args="at=%s, text=%s, size=%s, color=%s, bgcolor=%s" % ("4,96", title, 3, "black", "white")
+			grass.run_command('d.text.freetype' quiet=True, flags="b", kwargs=title_args)
+			legend_args="map=%s, at=%s, range=%s" % (precip_rast,"2,25,88,95","1,100")
+			grass.run_command('d.legend', flags="s", quiet=True, kwargs=legend_args)
+			return_val = grass.run_command('d.mon' quiet=True, stop="PNG")
+			if (return_val == 0):
+				logging.info("Created map: %s", png_file)
+				cnt = cnt+1
+			else:
+				logging.error("Create map %s FAILED,", png_file)
+
+			grass.run_command('g.remove', flags="f", quiet=True, rast=precip_rast)
+			
+		logging.info("Completed %s png maps" % cnt)
+		# After finishing all pngs, make the gif animation
+		in_pngs = os.path.join(precip_target, "*.png")
+		out_gif = os.path.join(precip_target, "precip_animation.gif")
+		convert_args = " -delay 50 -loop 0 %s %s" % (in_pngs, out_gif) 
+		return_val = subprocess.call("convert", convert_args)
+		if (return_val == 0):
+			logging.info("Created gif animation as %s" % out_gif)
+		else:
+			logging.error("Creating gif %s FAILED" % out_gif)
+
+	except:
+		logging.error("Could not switch uid: %s: ", u)
 
 
 
@@ -747,20 +791,22 @@ def main():
       sys.exit()
     else:
     # we have data, go ahead
-    #  do_loop(data_rows)
+      do_loop(data_rows)
     # INSERT to the database
-    #  upload_flow_data(data_rows)
-    #  upload_model_timing(data_rows)
-    #  copy_to_archive(datadir)
-    #  send_alerts()
-			send_special_alert()
+      upload_flow_data(data_rows)
+      upload_model_timing(data_rows)
+      copy_to_archive(datadir)
+#      send_alerts()
 
-  precip_dir = get_latest_precipdir()
-  if precip_dir is None:
+  csvdir = get_latest_precipdir()
+  if csvdir is None:
       exit
   else:
-    cnt = parse_precip_data(precip_dir)
-    logging.info("Found %s precipitation data files" % (cnt,))
+    precip_target = parse_precip_data(csvdir)
+		if precip_target is None:
+			exit
+		else:
+			create_precip_images(csvdir, precip_target)	
 
   logging.info("*** Hydrograph Process completed ***")
   # end of main()
@@ -792,8 +838,8 @@ if __name__ == "__main__":
   precip_file = config.get("General", "precip_data_file")
   log_file = config.get("General", "logfile")
   out_data_path = config.get("Graphs","out_data_path")
-  out_precip_path = config.get("Graphs","out_precip_path")
   out_pref = config.get("Graphs", "out_pref")
+	out_precip_path = config.get("Graphs", "out_precip_path")	
   host = config.get("Db","host")
   dbname = config.get("Db","dbname")
   user = config.get("Db","user")
