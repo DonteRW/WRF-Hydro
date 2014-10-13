@@ -8,7 +8,11 @@ def add_accum_rain(csvin):
     Save, overwriting the original
     """
     csvtmp = csvin+".tmp"
-    os.rename(csvin, csvtmp)
+	try:
+		os.rename(csvin, csvtmp)
+	except os.Error, e:
+		sys.exit(str(e))
+
     # open the temp file for reading
     with open(csvtmp,"r") as infile:
         csvrdr = csv.reader(infile)
@@ -34,15 +38,21 @@ def add_accum_rain(csvin):
             newr = [st_id, st_name, start_tm, end_tm, precip, '%.1f' % accum]
             dataout.append(newr)
 
-    infile.close()
+	try:
+		infile.close()
+	except:
+		sys.exit(sys.exc_info()[0])
 
     # rewrite back out to the same original file name
     with open(csvin, "w") as outfile:
         csvwrtr = csv.writer(outfile)
         for r in dataout:
             csvwrtr.writerow(r)
-       
-    outfile.close()
+	try:
+	    outfile.close()
+		sys.exit(0)
+	except:
+		sys.exit(sys.exc_info()[0])
 
 
 # Main work starts here
