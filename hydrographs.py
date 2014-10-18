@@ -22,7 +22,7 @@ import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 import matplotlib.dates as md
-import datetime,tarfile 
+import datetime,tarfile,subprocess 
 import numpy as np
 import os, csv, sys, errno, shutil
 import psycopg2
@@ -71,8 +71,8 @@ def send_alerts():
     #logging.info("Sending alert to User: %s with ID: %s at: %s for return period %s" ,u[0], u[4], u[1], u[3])
     # For each user, find the hydrographs she has access to, 
     # with return rate above her requested level
-    sql = 	"SELECT h.station_name, m.max_flow, to_char(m.max_flow_ts,'DD-MM-YYYY HH24:MI') "
-    sql += 	" FROM max_flows AS m JOIN hydrostations AS h ON m.id=h.id "
+    sql =	"SELECT h.station_name, m.max_flow, to_char(m.max_flow_ts,'DD-MM-YYYY HH24:MI') "
+    sql +=	" FROM max_flows AS m JOIN hydrostations AS h ON m.station_num=h.station_num "
     sql +=	" WHERE h.reshut_num IN (SELECT reshut_num FROM access WHERE user_id=%s)"
     sql +=	" AND m.flow_level >= %s AND h.active='t';"
     data = (u[4], u[3])
@@ -318,11 +318,11 @@ def create_graph(prob, num, disch, hrs, dt):
     """ 
     Creates a hydrograph (png image file) using the array of discharges from the input parameter
      """
-    global out_data_path
+    global out_graph_path
     global out_pref
     # Make a name for the date-specific target directory
 
-    out_dir = os.path.join(out_data_path, dt[:10])
+    out_dir = os.path.join(out_graph_path, dt[:10])
     # Make sure target directory exists
     try:
         os.makedirs(out_dir)
@@ -435,13 +435,13 @@ def do_loop(data_rows):
           logging.warning( "No station with id: %s",str(id))
 
 
-def get_latest_precipdir():
+def get_latest_raindir():
     """
-    Scans the precip directory to get timestamp
+    Scans the WRF_Rain directory to get timestamp
     finds the newest (if it is newer than the timestamp file)
     returns the newest precip directory
     """
-    global img_path
+    global rain_path
     global ts_file
     global precip_file
 
@@ -457,42 +457,101 @@ def get_latest_precipdir():
         last_ts = 0
         f = open(ts_file, "w")
 
-    new_precip_dir = None
-    for d in os.listdir(img_path):
-        if os.path.isdir(os.path.join(img_path,d)):
-            logging.debug("Trying path: %s", os.path.join(img_path,d,precip_file))
+    new_rain_dir = None
+    for d in os.listdir(rain_path):
+        if os.path.isdir(os.path.join(rain_path,d)):
+            logging.debug("Trying path: %s", os.path.join(rain_path,d,precip_file))
             try:
-                ts = int(os.path.getmtime(os.path.join(img_path,d,precip_file)))
+                ts = int(os.path.getmtime(os.path.join(rain_path,d,precip_file)))
             # Compare timestamp for each frxst file in each subdir 
             # with the value from the last timestamp file
-                if ts > last_ts:
-                    new_precip_dir = d
+			# The last timestamp was already updated by the get_latest_datadir() function
+			# The new map_dir *should* be newer than the last datadir (uploaded later from Model)
+			# Just in case, take off 10 seconds from last (datadir) timestamp 
+			# to be sure to find newer rain files
+                if ts >= last_ts-10:
+                    new_rain_dir = d
     
             except OSError as e:
-                logging.warning("Precipitation file in subdir: %s not yet available. %s", d, e.strerror)
+                logging.warning("Rain data file in subdir: %s not yet available. %s", d, e.strerror)
 
   # If there is no newer frxst file, return None
   # otherwise return the subdir of the new data
   # and write out the new timestamp to the last timestamp file (for next time)
-    if new_precip_dir is None:
-        logging.info("No new data file")
+    if new_rain_dir is None:
+        logging.info("No new rain data file")
         f.close()
         return None
 
     else:
         f.close()
-        logging.info("Using precipitation directory: %s", new_precip_dir)
+        logging.info("Using rain directory: %s", new_rain_dir)
     
-    return new_precip_dir
+    return new_rain_dir
 
 
-def parse_precip_data(new_precip_dir):
+
+def get_latest_mapdir():
+    """
+    Scans the precip directory to get timestamp
+    finds the newest (if it is newer than the timestamp file)
+    returns the newest precip directory
+    """
+    global map_path
+    global ts_file
+    global map_file
+
+  # First read existing timestamp from last timestamp file
+    try:
+        f = open(ts_file,"r+")
+    # Convert timestamp to int. We don't care about fractions of seconds
+        last_ts = int(float(f.readline()))
+
+    except IOError as e:
+    # Can't get a value from the last timesatmp file. Assume 0
+        logging.warning( "Can't access timestamp file: %s", e.strerror)
+        last_ts = 0
+        f = open(ts_file, "w")
+
+    new_map_dir = None
+    for d in os.listdir(map_path):
+        if os.path.isdir(os.path.join(map_path,d)):
+            logging.debug("Trying path: %s", os.path.join(map_path,d,map_file))
+            try:
+                ts = int(os.path.getmtime(os.path.join(map_path,d,map_file)))
+            # Compare timestamp for each frxst file in each subdir 
+            # with the value from the last timestamp file
+			# The last timestamp was already updated by the get_latest_datadir() function
+			# The new map_dir *should* be newer than the last datadir (uploaded later from Model)
+			# Just in case, take off 10 seconds to be sure to find newer files
+                if ts >= last_ts-10:
+                    new_map_dir = d
+            except OSError as e:
+                logging.warning("Precipitation map files in subdir: %s not yet available. %s", d, e.strerror)
+
+	# If there is no newer frxst file, return None
+	# otherwise return the subdir of the new data
+	# and write out the new timestamp to the last timestamp file (for next time)
+    if new_map_dir is None:
+        logging.info("No new precipitation map files")
+        f.close()
+        return None
+
+    else:
+        f.close()
+        logging.info("Using precipitation directory: %s", new_map_dir)
+    
+    return new_map_dir
+
+
+
+def extract_map_data(new_map_dir):
     """
     Extract the set of precip csv files from tar.gz 
     into the same directory
     """
-    target = os.path.join(img_path, new_precip_dir)
-    p = tarfile.open(os.path.join(target,precip_file))
+    target = os.path.join(map_path, new_map_dir)
+    p = tarfile.open(os.path.join(target,map_file))
     p.extractall(path=target)
     p.close()
     cnt = len([f for f in os.listdir(target) 
@@ -500,6 +559,34 @@ def parse_precip_data(new_precip_dir):
     return cnt
 
 
+
+def create_map_images(map_dir):
+	"""
+	Call a GRASS script to create a set of images of precip maps
+	Move all images to the web directory
+	Call imageMagick "convert" to make animation
+	"""
+	global out_map_path
+	global map_path
+	
+	srcmapdir = os.path.join(map_path, map_dir)
+	grass_script = 'create_precip_map.sh'
+	grass_script_path = os.path.join('/usr/local/sbin', grass_script)
+	cmd = 'su - ihs -c ' 
+	retn = subprocess.call([cmd, grass_script_path, srcmapdir], shell=True)
+	if (retn == 0):
+		logging.info("GRASS script completed successfully")
+		# Move all image files to the web dir
+		try:
+			shutil.copytree(srcmapdir, out_map_path)
+			logging.info("Data files copied to: %s as %s " % (out_map_path, map_dir))
+		except (IOError, os.error) as e:
+			logging.error("Error %s from: %s to: %s", (str(e), srcmapdir, out_map_path))
+	
+	else:
+		logging.error("GRASS script FAILED")
+	
+	return retn
 
 def get_latest_datadir():
   """
@@ -579,6 +666,8 @@ def parse_frxst(dirname):
     for line in f.readlines():
       # Force discharge to a float
       secs, dt, hr, id, disch = int(line[0:8]), line[9:19], line[20:28], int(line[32:36]), float(line[59:66])
+	  # New frxst format:
+      #secs, dt, hr, id, disch = int(line[0:7]), line[9:18], line[20:27], int(line[32:35]), float(line[59:65])
       dt_str = dt+" "+hr
       atuple=(secs,dt,hr,id,disch,dt_str)
       data_rows.append(atuple)
@@ -685,126 +774,157 @@ def upload_model_timing(data_rows):
     if conn:
       conn.close()
 
-def copy_to_archive(datadir):
-  """ 
-  Copies the latest directory to the website archive directory
-  Also move the latest rainfall data files to the web archive
-  """
-  global web_archive
-  global data_path
-  global rain_path
-  global img_path
+def copy_to_archive(datadir, mapdir, raindir):
+	""" 
+	Copies the latest directory to the website archive directory
+	Also move the latest rainfall data files to the web archive
+	"""
+	global web_archive
+	global data_path
+	global rain_path
+	global map_path
+	global out_map_path
+	
+	if datadir is not None:
+		destdatadir	= os.path.join(web_archive,'forecast',datadir)
+		srcdatadir	= os.path.join(data_path, datadir)	
+		try:
+			shutil.copytree(srcdatadir, destdatadir)
+			logging.info("Data files copied to: "+destdatadir)
+		except (IOError, os.error) as e:
+			logging.error("Error %s", str(e)+" from: "+datadir+" to: "+web_archive)
+	
+	if raindir is not None:
+		destraindir	= os.path.join(web_archive,'rainfall')
+		srcraindir	= os.path.join(rain_path, raindir)
+		try:
+			shutil.copytree(srcraindir, destraindir)
+			logging.info("Rain files copied to: "+destraindir)
+		except (IOError, os.error) as e:
+			logging.error("Error %s", str(e)+" from: "+rain_path+" to: "+web_archive)
 
-  destdatadir   = os.path.join(web_archive,'forecast',datadir)
-  srcdatadir    = os.path.join(data_path, datadir)  
-  destraindir   = os.path.join(web_archive,'rainfall')
-  srcraindir    = rain_path
-  srcimgdir     = img_path
+	if mapdir is not None:
+		srcmapdir	= os.path.join(map_path, mapdir)
+		dstmapdir	= os.path.join(out_map_path, mapdir)
+		# Temporary for the pdf file...
+		dstmapdir2	= os.path.join(rain_path, mapdir)
+		try:
+			shutil.copytree(srcmapdir, destmapdir)
+			logging.info("Map files copied to: "+destmapdir)
+			shutil.copytree(srcmapdir, destmapdir2)
+			logging.info("Map PDF copied to: "+destmapdir2)
+		except (IOError, os.error) as e:
+			logging.error("Error %s", str(e)+" from: "+map_path+" to: "+dstmapdir)
+	
+	"""
+	try:
+		for root, dirs, fnames in os.walk(srcraindir):
+				for f in fnames:
+						shutil.copy(os.path.join(srcraindir,f), destraindir)
+						logging.info("Rain file %s copied to: %s" % (f,destraindir))
+						os.unlink(os.path.join(srcraindir,f))
 
-  try:
-    shutil.copytree(srcdatadir, destdatadir)
-    logging.info("Data files copied to: "+destdatadir)
-  except (IOError, os.error) as e:
-    logging.error("Error %s", str(e)+" from: "+datadir+" to: "+web_archive)
-  
-  try:
-    for root, dirs, fnames in os.walk(srcraindir):
-        for f in fnames:
-            shutil.copy(os.path.join(srcraindir,f), destraindir)
-            logging.info("Rain file %s copied to: %s" % (f,destraindir))
-            os.unlink(os.path.join(srcraindir,f))
+	except (IOError, os.error) as e:
+		logging.error("Error %s", str(e)+" from: "+srcraindir+" to: "+destraindir)
 
-  except (IOError, os.error) as e:
-    logging.error("Error %s", str(e)+" from: "+srcraindir+" to: "+destraindir)
+	try:
+		for root, dirs, fnames in os.walk(srcmapdir):
+				for f in fnames:
+						shutil.copy(os.path.join(srcmapdir,f), destraindir)
+						logging.info("Rain image %s copied to: %s" % (f,destraindir))
+						os.unlink(os.path.join(srcmapdir,f))
 
-  try:
-    for root, dirs, fnames in os.walk(srcimgdir):
-        for f in fnames:
-            shutil.copy(os.path.join(srcimgdir,f), destraindir)
-            logging.info("Rain image %s copied to: %s" % (f,destraindir))
-            os.unlink(os.path.join(srcimgdir,f))
-
-  except (IOError, os.error) as e:
-    logging.error("Error %s", str(e)+" from: "+srcimgdir+" to: "+destraindir)
-
+	except (IOError, os.error) as e:
+		logging.error("Error %s", str(e)+" from: "+srcmapdir+" to: "+destraindir)
+	"""
 
 def main():
-  """
-  Loops thru a number of index values,retrieved from a db query, reads rows 
-  from the csv file passed on the command line
-  Each row contains data for a certain station at a certain time
-  The loop aggregates the data, and creates a discharge array for each station
-  This array is fed to a function to create a hydrograph for each station
-  """
+	"""
+	Loops thru a number of index values,retrieved from a db query, reads rows 
+	from the csv file passed on the command line
+	Each row contains data for a certain station at a certain time
+	The loop aggregates the data, and creates a discharge array for each station
+	This array is fed to a function to create a hydrograph for each station
+	"""
 
-  logging.info("*** Hydrograph process started ***")
-  datadir = get_latest_datadir()
-  if datadir is None:
-    exit
-  else:	
-    data_rows = parse_frxst(datadir)
-    if (data_rows is None):
-      sys.exit()
-    else:
-    # we have data, go ahead
-      do_loop(data_rows)
-    # INSERT to the database
-      upload_flow_data(data_rows)
-      upload_model_timing(data_rows)
-      copy_to_archive(datadir)
-    # Send email alerts
-      send_alerts()
-      send_special_alert()
+	logging.info("*** Hydrograph process started ***")
+	datadir = get_latest_datadir()
+	if datadir is None:
+		exit
+	else:	
+		data_rows = parse_frxst(datadir)
+		if (data_rows is None):
+			sys.exit()
+		else:
+		# we have data, go ahead
+			do_loop(data_rows)
+		# INSERT to the database
+			upload_flow_data(data_rows)
+			upload_model_timing(data_rows)
+		# Send email alerts
+			send_alerts()
+			send_special_alert()
 
-  precip_dir = get_latest_precipdir()
-  if precip_dir is None:
-      exit
-  else:
-    cnt = parse_precip_data(precip_dir)
-    logging.info("Found %s precipitation data files" % (cnt,))
+	mapdir = get_latest_mapdir()
+	if mapdir is None:
+		exit
+	else:
+		cnt = extract_map_data(mapdir)
+		logging.info("Found %s precipitation map data files" % (cnt,))
+		create_map_images(mapdir)
 
-  logging.info("*** Hydrograph Process completed ***")
-  # end of main()
+	raindir = get_latest_raindir()
+
+	if (mapdir is None and datadir is None and raindir is None):
+		exit
+	else:
+		copy_to_archive(datadir, mapdir, raindir)
+
+	
+	logging.info("*** Hydrograph Process completed ***")
+	# end of main()
 
 
 if __name__ == "__main__":
 # Get into script directory
-  if (len(sys.argv) == 2):
-    script_path = sys.argv[1]
-  else:
-  # No script path passed on command line, assume "/usr/local/sbin"
-    script_path = "/usr/local/sbin"
+	if (len(sys.argv) == 2):
+		script_path = sys.argv[1]
+	else:
+	# No script path passed on command line, assume "/usr/local/sbin"
+		script_path = "/usr/local/sbin"
 
-  os.chdir(script_path)
+	os.chdir(script_path)
 
 # Get configurations
-  config = ConfigParser.ConfigParser()
-  config.read("hydrographs.conf")
-  min_hr = config.getint("General", "min_hr")
-  max_hr = config.getint("General","max_hr")
-  hr_col = config.getint("General", "hr_col")
-  data_path = config.get("General", "data_path")
-  rain_path = config.get("General", "rain_path")
-  img_path = config.get("General", "img_path")
-  disch_col = config.getint("General", "disch_col")
-  dt_str_col = config.getint("General", "dt_str_col")
-  ts_file = config.get("General", "timestamp_file")
-  data_file = config.get("General", "disch_data_file")
-  precip_file = config.get("General", "precip_data_file")
-  log_file = config.get("General", "logfile")
-  out_data_path = config.get("Graphs","out_data_path")
-  out_precip_path = config.get("Graphs","out_precip_path")
-  out_pref = config.get("Graphs", "out_pref")
-  host = config.get("Db","host")
-  dbname = config.get("Db","dbname")
-  user = config.get("Db","user")
-  password = config.get("Db","password")
-  web_archive = config.get("Web","web_archive")
+	config = ConfigParser.ConfigParser()
+	config.read("hydrographs.conf")
+	min_hr = config.getint("General", "min_hr")
+	max_hr = config.getint("General","max_hr")
+	hr_col = config.getint("General", "hr_col")
+	data_path = config.get("General", "data_path")
+	rain_path = config.get("General", "rain_path")
+	map_path = config.get("General", "map_path")
+	disch_col = config.getint("General", "disch_col")
+	dt_str_col = config.getint("General", "dt_str_col")
+	ts_file = config.get("General", "timestamp_file")
+	data_file = config.get("General", "disch_data_file")
+	precip_file = config.get("General", "precip_data_file")
+	precip_pdf = config.get("General", "precip_pdf_file")
+	map_file = config.get("General", "map_data_file")
+	log_file = config.get("General", "logfile")
+	out_graph_path = config.get("Web","out_graph_path")
+	out_map_path = config.get("Web","out_map_path")
+	out_pref = config.get("Web", "out_pref")
+	host = config.get("Db","host")
+	dbname = config.get("Db","dbname")
+	user = config.get("Db","user")
+	password = config.get("Db","password")
+	web_archive = config.get("Web","web_archive")
 
-  # Set up logging
-  frmt='%(asctime)s %(levelname)-8s %(message)s'
-  logging.basicConfig(level=logging.DEBUG, format=frmt, filename=log_file, filemode='a')
+	# Set up logging
+	frmt='%(asctime)s %(levelname)-8s %(message)s'
+	logging.basicConfig(level=logging.DEBUG, format=frmt, filename=log_file, filemode='a')
  
-  # Now begin work
-  main()
+	# Now begin work
+	main()
 
