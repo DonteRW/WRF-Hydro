@@ -5,22 +5,24 @@
 # Author:	Micha Silver
 # Date:		2/10/2014
 # Parameters:	
-inputdir=$1
-outputdir=$2
-if [[ -z $inputdir ]]; then
-	echo "Syntax $0 <directory of csv files for input> <directory for png output>"
+
+baseDir="/home/ihs/WRF_Images"
+precipDir=$1
+
+if [[ -z $precipDir ]]; then
+	echo "Syntax $0 <directory of csv files for input>"
 	exit
+else
+    echo "Working in $precipDir"
+    cd $precipDir
 fi  
-if [[ -z $outputdir ]]; then
-	outputdir="."
-fi
 
 # Set up GRASS environment
 export GISBASE=/usr/lib64/grass
 export PATH=$PATH:$GISBASE/bin:$GISBASE/scripts
 export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:$GISBASE/lib
 export GIS_LOCK=$$
-
+export GISRC=/home/ihs/.grassrc6
 export GISDBASE=/home/ihs/grass
 export LOCATION_NAME=WGS84
 export MAPSET=precip
@@ -30,19 +32,19 @@ export GRASS_HEIGHT=600
 export GRASS_TRUECOLOR=TRUE
 
 # Get one input file and set region
-p=`ls $inputdir/precip*.txt | head -1`
+p=`ls $precipDir/precip*.txt | head -1`
 reg=`r.in.xyz -s -g input=${p} output=dummy fs=, |  awk '{print $1" "$2" "$3" "$4}'`
 g.region --q $reg
 # Also set resolution to 1/30 degree (about 3 km)
 g.region --q res=0.033
 
 # Loop thru input directory
-for f in $inputdir/precip*.txt; do
+for f in $precipDir/precip*.txt; do
 	precip_rast=`basename ${f} .txt`
-	r.in.xyz --quiet --overwrite input=${f} output=$precip_rast fs=, method=mean
+	r.in.xyz --quiet --overwrite input=${f} output=${precip_rast} fs=, method=mean
 	r.null $precip_rast setnull=0
 	r.colors --quiet $precip_rast rules=/home/ihs/precip_colors
-	export GRASS_PNGFILE=${outputdir}/${precip_rast}.png
+	export GRASS_PNGFILE=${precipDir}/${precip_rast}.png
 	d.mon --quiet start=PNG
 	# Add layers
 	d.rast --quiet $precip_rast
@@ -63,6 +65,4 @@ $GISBASE/etc/clean_temp
 # remove session tmp directory:
 rm -rf /tmp/grass6-$USER-$GIS_LOCK
 
-# Create animation
-convert -delay 5 -loop 0 -dispose Background ${outputdir}/*.png ${outputdir}/$precip_rast_anim.gif
 

@@ -572,15 +572,16 @@ def create_map_images(map_dir):
 	srcmapdir = os.path.join(map_path, map_dir)
 	grass_script = 'create_precip_map.sh'
 	grass_script_path = os.path.join('/usr/local/sbin', grass_script)
-	cmd = 'su - ihs -c ' 
-	retn = subprocess.call([cmd, grass_script_path, srcmapdir], shell=True)
+	cmd = 'su - ihs -c "%s %s"' % (grass_script_path,srcmapdir) 
+	logging.debug("Starting GRASS script: %s" % (cmd,))
+	retn = subprocess.call(cmd, shell=True)
 	if (retn == 0):
 		logging.info("GRASS script completed successfully")
 		# Move all image files to the web dir
 		try:
 			shutil.copytree(srcmapdir, out_map_path)
 			logging.info("Data files copied to: %s as %s " % (out_map_path, map_dir))
-		except (IOError, os.error) as e:
+		except (IOError, OSError) as e:
 			logging.error("Error %s from: %s to: %s", (str(e), srcmapdir, out_map_path))
 	
 	else:
@@ -809,10 +810,10 @@ def copy_to_archive(datadir, mapdir, raindir):
 		# Temporary for the pdf file...
 		dstmapdir2	= os.path.join(rain_path, mapdir)
 		try:
-			shutil.copytree(srcmapdir, destmapdir)
-			logging.info("Map files copied to: "+destmapdir)
-			shutil.copytree(srcmapdir, destmapdir2)
-			logging.info("Map PDF copied to: "+destmapdir2)
+			shutil.copytree(srcmapdir, dstmapdir)
+			logging.info("Map files copied to: "+dstmapdir)
+			shutil.copytree(srcmapdir, dstmapdir2)
+			logging.info("Map PDF copied to: "+dstmapdir2)
 		except (IOError, os.error) as e:
 			logging.error("Error %s", str(e)+" from: "+map_path+" to: "+dstmapdir)
 	
