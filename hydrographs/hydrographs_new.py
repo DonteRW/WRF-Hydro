@@ -36,12 +36,12 @@ from email.mime.multipart import MIMEMultipart
 
 
 def main():
-    """
-    Loops thru each of the source data directories, checking if there is new data 
-    When a new data file is found, it is processed, then copied to the web dir
-    and the original data is archived and deleted.
-    Processing is different for each type of source data
-    """
+	"""
+	Loops thru each of the source data directories, checking if there is new data 
+	When a new data file is found, it is processed, then copied to the web dir
+	and the original data is archived and deleted.
+	Processing is different for each type of source data
+	"""
 	#mapdir = get_latest_mapdir()
 	#if mapdir is not None:
 	#   extract_map_data(mapdir)
@@ -58,60 +58,65 @@ def main():
 	#   data_rows = parse_frxst(datadir)
 	#
 	#   if (data_rows is None):
-	#       sys.exit()
+	#	   sys.exit()
 	#   else:
-	    # we have data, go ahead
-	    #   do_loop(data_rows)
-	    # INSERT to the database
-	    #   upload_flow_data(data_rows)
-	    #   upload_model_timing(data_rows)
-	    # Send email alerts
-	    #   send_alerts()
-	    #   send_special_alert()
+		# we have data, go ahead
+		#   do_loop(data_rows)
+		# INSERT to the database
+		#   upload_flow_data(data_rows)
+		#   upload_model_timing(data_rows)
+		# Send email alerts
+		#   send_alerts()
+		#   send_special_alert()
 
 	# If there are any new directories, run copy to archive
 	#if (mapdir is None and datadir is None and raindir is None):
-	#       exit
+	#	   exit
 	#else:
-	#       copy_to_archive(datadir, mapdir, raindir)
-    logging.info("*** Hydrograph processing started ***")
-    for the_dir in (data_dir, rain_dir, map_dir):
-        for d in os.listdir(the_dir):
-        # Check if the new data dir has been created
-            if os.path.isdir(os.path.join(the_dir, d)):
-                # There is a new directory, now check if there are any file
-                new_data = os.path.join(the_dir, d)
-                f = os.listdir(new_data)
-                if len(f) = 0;
-                    logging.info("Files in %s not yet available" % new_data)
-                else:
-                    # We have new data files, start processing
-                    # The frxst data
-                    if the_dir = data_dir:
-                        data_rows = parse_frxst(data_dir)
-                        if (data_rows is None):
-                            sys.exit()
-                        else:
-                            do_loop(data_rows)
-                            # INSERT to the database
-                            upload_flow_data(data_rows)
-                            upload_model_timing(data_rows)
-                            # Send email alerts
-                            send_alerts()
-                            send_special_alert()
+	#	   copy_to_archive(datadir, mapdir, raindir)
+	logging.info("*** Hydrograph processing started ***")
+	for the_dir in (data_dir, rain_dir, map_dir):
+		the_dir = os.path.join(src_path, the_dir)
+		for d in os.listdir(the_dir):
+		# Check if the new data dir has been created
+			if os.path.isdir(os.path.join(the_dir, d)):
+				# There is a new directory, now check if there are any file
+				new_data_path = os.path.join(the_dir, d)
+				f = os.listdir(new_data_path)
+				if len(f) == 0:
+					logging.info("Files in %s not yet available" % new_data_path)
+				else:
+					# We have new data files, start processing
+					# The frxst data
+					if data_dir in the_dir:
+						# call parse_frxst with just the last part of the directory to the new data
+						data_rows = parse_frxst(new_data_path)
+						if (data_rows is None):
+							sys.exit()
+						else:
+							do_loop(data_rows)
+							# INSERT to the database
+							upload_flow_data(data_rows)
+							upload_model_timing(data_rows)
+							# Send email alerts
+							send_alerts()
+							send_special_alert()
 
+					# The maps
+					if map_dir in the_dir:
+						extract_map_data(new_data_path)
+						create_map_images(new_data_path)
 
-                    # The maps
-                    if the_dir = map_dir:
-                        extract_map_data(map_dir)
-                        create_map_images(map_dir)
+					# The precip file (nothing to do, just go on to copy and archive)
+					# Run the copy_and_archive function for each dir
+					# Pass only the *last part* of the path to the function for creating final archive locations
+					copy_and_archive(the_dir, d)
+			else:
+				# No new data yet, just continue
+				logging.info("No new data")
 
-                    # The precip file (nothing to do, just go on to copy and archive
-                    # Run the copy_and_archive function for each dir
-                    copy_and_archive(the_dir, new_data)
-	
-    logging.info("*** Hydrograph Processing completed ***")
-    # end of main()
+	logging.info("*** Hydrograph Processing completed ***")
+	# end of main()
 
 
 def send_alerts():
@@ -627,18 +632,19 @@ def do_loop(data_rows):
 #
 
 
-def extract_map_data(new_map_dir):
-    """
-    Extract the set of precip csv files from tar.gz 
-    into the same directory
-    """
-    target = os.path.join(map_path, new_map_dir)
-    p = tarfile.open(os.path.join(target,map_file))
-    p.extractall(path=target)
-    p.close()
-    cnt = len([f for f in os.listdir(target) 
-	     if f.endswith('.txt') and os.path.isfile(os.path.join(target, f))])
-    return cnt
+def extract_map_data(map_dir):
+	"""
+	Extract the set of precip csv files from tar.gz 
+	into the same directory
+	"""
+	global map_file
+
+	p = tarfile.open(os.path.join(map_dir, map_file))
+	p.extractall(path=map_dir)
+	p.close()
+	cnt = len([f for f in os.listdir(map_dir) 
+		 if f.endswith('.txt') and os.path.isfile(os.path.join(map_dir, f))])
+	return cnt
 
 
 
@@ -649,23 +655,28 @@ def create_map_images(map_dir):
 	Call imageMagick "convert" to make animation
 	"""
 	global out_map_path
-	global map_path
 	
-	srcmapdir = os.path.join(map_path, map_dir)
 	grass_script = 'create_precip_map.sh'
 	grass_script_path = os.path.join('/usr/local/sbin', grass_script)
-	cmd = 'su - ihs -c "%s %s"' % (grass_script_path,srcmapdir) 
+	cmd = 'su - ihs -c "%s %s"' % (grass_script_path,map_dir) 
 	logging.debug("Starting GRASS script: %s" % (cmd,))
 	retn = subprocess.call(cmd, shell=True)
 	if (retn == 0):
 		logging.info("GRASS script completed successfully")
 		# Move all image files to the web dir
 		try:
-			shutil.copytree(srcmapdir, out_map_path)
+			shutil.copytree(map_dir, out_map_path)
 			logging.info("Image files copied to: %s " % (out_map_path,))
 		except (IOError, OSError) as e:
-			logging.error("Error %s from: %s to: %s", (repr(e), srcmapdir, out_map_path))
-	
+			logging.error("Error %s from: %s to: %s", (repr(e), map_dir, out_map_path))
+		# Reset the symlink
+		link_name = "precip_animated.gif"
+		link_path = os.path.join(out_map_path, link_name)
+		if os.path.islink(link_path):
+			os.unlink(link_path)
+		os.symlink(os.path.join(out_map_dir, map_dir, link_name), link_path)
+		logging.info("Precip animation now linked to: %s" % os.path.join(out_map_dir, map_dir, link_name))
+			
 	else:
 		logging.error("GRASS script FAILED")
 	
@@ -733,7 +744,7 @@ def create_map_images(map_dir):
 #
 
 
-def parse_frxst(dirname):
+def parse_frxst(new_data_dir):
 	"""
 	Scan the input data file, and get all rows into a list of lists
 	Add a column "datestr" wihich concatenates the date and hour
@@ -742,7 +753,7 @@ def parse_frxst(dirname):
 	global data_path
 	global data_file
 
-	input_file = os.path.join(data_path, dirname, data_file)
+	input_file = os.path.join(new_data_dir, data_file)
 	data_rows=[]
 	try:
 		f = open(input_file, 'rb')
@@ -900,104 +911,110 @@ def upload_model_timing(data_rows):
 #            logging.error("Error %s copying from: %s, to: %s" % (repr(e), map_path, dstmapdir))
 #	
 
-def copy_and_archive (src_dir):
-    global src_path
-    global dst_data_suffix
-    global dst_rain_suffix
-    global dst_maps_suffix
-    global arc_path
-    global web_site
+def copy_and_archive (the_dir, new_data):
+	""" 
+	Copies each data directory to its place in the website
+	creates tar archive of the date, and deletes the new data directory
+	"the_dir" contains the full path to one of the three types of new data files,
+	WRF_Data, WRF_Rain, or WRF_Maps
+	"new_data" is the subdir of "the_dir" where the new files are located
+	"""
+	global dst_data_suffix
+	global dst_rain_suffix
+	global dst_maps_suffix
+	global arc_path
+	global web_site
+	global web_archive
 
-    src = os.path.join(src_path, src_dir)
-    if (src_dir == 'WRF_Data'):
-	dst = os.path.join(web_site, 'archive', dst_data_suffix)
-        dst_arc = os.path.join(arc_path, dst_data_suffix)
-    elif (src_dir == 'WRF_Rain'):
-	dst = os.path.join(web_site, 'archive', dst_rain_suffix)
-	dst_arc = os.path.join(arc_path, dst_rain_suffix)
-    elif (src_dir == 'WRF_Maps'):
-	dst = os.path.join(web_site, dst_maps_suffix)
-	dst_arc = os.path.join(arc_path, dst_maps_suffix)
-    else:
-        logging.error("Unknown source data dir: %s" % src_dir)
-        os.exit(1)
+	logging.warning("Configs: the_dir=%s new_data=%s " % (the_dir, new_data))
+	if ('Data' in the_dir):
+		dst = os.path.join(web_archive, dst_data_suffix)
+		dst_arc = os.path.join(arc_path, dst_data_suffix)
+		logging.info("Copying to %s" % dst)
+	elif ('Rain' in the_dir):
+		dst = os.path.join(web_archive, dst_rain_suffix)
+		dst_arc = os.path.join(arc_path, dst_rain_suffix)
+		logging.info("Copying to %s" % dst)
+	elif ('Maps' in the_dir):
+		dst = os.path.join(web_site, dst_maps_suffix)
+		dst_arc = os.path.join(arc_path, dst_maps_suffix)
+		logging.info("Copying to %s" % dst)
+	else:
+		logging.error("Unknown source data dir: %s" % the_dir)
+		os.exit(1)
 
-
-    for d in os.listdir(src):
-        if os.path.isdir(os.path.join(src, d)):
-            full_src = os.path.join(src, d)
-            full_dst = os.path.join(dst, d)
-            #logging.info("Copying and archiving: src=%s\tdst=%s\tarchive=%s" % (full_src, full_dst, dst_arc))
-            # copy tree to destination
-            try:
-                shutil.copytree(full_src, full_dst)
-                logging.info("Data files from %s copied to: %s" % (full_src, full_dst))
-            except (IOError, OSError) as e:
-                logging.error("Error %s: copying from: %s to: %s FAILED" % (repr(e), full_src, full_dst))
-            
-            # Create tar archive of tree
-            try:
-                tarname = d+".tar.gz"
-                tarpath = os.path.join(dst_arc, tarname)
-                arc = tarfile.open(tarpath, 'w:gz')
-                arc.add(full_src)
-                arc.close()
-                logging.info("Created tar archive %s " % (tarpath,))
-                shutil.rmtree(full_src)
-                logging.info("Source dir %s removed" % full_src)
-            except Exception as e:
-                logging.error("Error: %s creating tar archive: %s FAILED" % (repr(e),tarpath))
+	full_src = os.path.join(the_dir, new_data)
+	full_dst = os.path.join(dst, new_data)
+	logging.warning("Copying and archiving: Source=%s\tDest=%s\tArchive=%s" % (full_src, full_dst, dst_arc))
+	# copy tree to destination
+	try:
+		shutil.copytree(full_src, full_dst)
+		logging.info("Data files from %s copied to: %s" % (full_src, full_dst))
+	except (IOError, OSError) as e:
+		logging.error("Error %s: copying from: %s to: %s FAILED" % (repr(e), full_src, full_dst))
+			
+	# Create tar archive of tree
+	tarname = new_data+".tar.gz"
+	tarpath = os.path.join(dst_arc, tarname)
+	try:
+		arc = tarfile.open(tarpath, 'w:gz')
+		arc.add(full_src)
+		arc.close()
+		logging.info("Created tar archive %s " % (tarpath,))
+		shutil.rmtree(full_src)
+		logging.info("Source dir %s removed" % full_src)
+	except Exception as e:
+		logging.error("Error: %s creating tar archive: %s FAILED" % (repr(e),tarpath))
 
 
 
 if __name__ == "__main__":
-    # Get config directory
-    if (len(sys.argv) == 2):
-	hg_config = sys.argv[1]
-	print ("Using config: %s" % hg_config)
-    else:
-    # No script path passed on command line, assume "/usr/local/sbin"
-	hg_config = os.path.join("/usr/local/sbin/hydrographs.conf")
+	# Get config directory
+	if (len(sys.argv) == 2):
+		hg_config = sys.argv[1]
+		print ("Using config: %s" % hg_config)
+	else:
+	# No script path passed on command line, assume "/usr/local/sbin"
+		hg_config = "/usr/local/sbin/hydrographs.conf"
 
-    if not os.path.isfile(hg_config):
-	print ("No config file %s. Aborting" % hg_config)
-	sys.exit(1)
+	if not os.path.isfile(hg_config):
+		print ("No config file %s. Aborting" % hg_config)
+		sys.exit(1)
 
-    # Read configurations
-    config = ConfigParser.ConfigParser()
-    config.read(hg_config)
-    min_hr  = config.getint("General", "min_hr")
-    max_hr  = config.getint("General","max_hr")
-    hr_col  = config.getint("General", "hr_col")
-    data_dir= config.get("General", "data_dir")
-    rain_dir= config.get("General", "rain_dir")
-    map_dir = config.get("General", "map_dir")
-    src_path= config.get("General", "src_path")
-    dst_data_suffix   = config.get("General","dst_data_suffix")
-    dst_rain_suffix    = config.get("General","dst_rain_suffix")
-    dst_maps_suffix    = config.get("General","dst_maps_suffix")
-    arc_path    = config.get("General","arc_path")
-    disch_col   = config.getint("General", "disch_col")
-    dt_str_col  = config.getint("General", "dt_str_col")
-    ts_file     = config.get("General", "timestamp_file")
-    data_file   = config.get("General", "disch_data_file")
-    precip_file = config.get("General", "precip_data_file")
-    precip_pdf  = config.get("General", "precip_pdf_file")
-    map_file    = config.get("General", "map_data_file")
-    log_file    = config.get("General", "logfile")
-    out_graph_path = config.get("Web","out_graph_path")
-    out_map_path= config.get("Web","out_map_path")
-    out_pref    = config.get("Web", "out_pref")
-    host    = config.get("Db","host")
-    dbname  = config.get("Db","dbname")
-    user    = config.get("Db","user")
-    password= config.get("Db","password")
-    web_archive = config.get("Web","web_archive")
-    web_site = config.get("Web","web_site")
+	# Read configurations
+	config = ConfigParser.ConfigParser()
+	config.read(hg_config)
+	min_hr  = config.getint("General", "min_hr")
+	max_hr  = config.getint("General","max_hr")
+	hr_col  = config.getint("General", "hr_col")
+	src_path=config.get("General","src_path")
+	data_dir= config.get("General", "data_dir")
+	rain_dir= config.get("General", "rain_dir")
+	map_dir = config.get("General", "map_dir")
+	dst_data_suffix   = config.get("General","dst_data_suffix")
+	dst_rain_suffix	= config.get("General","dst_rain_suffix")
+	dst_maps_suffix	= config.get("General","dst_maps_suffix")
+	arc_path	= config.get("General","arc_path")
+	disch_col   = config.getint("General", "disch_col")
+	dt_str_col  = config.getint("General", "dt_str_col")
+	data_file   = config.get("General", "disch_data_file")
+	precip_file = config.get("General", "precip_data_file")
+	precip_pdf  = config.get("General", "precip_pdf_file")
+	map_file	= config.get("General", "map_data_file")
+	log_file	= config.get("General", "logfile")
+	out_graph_path = config.get("Web","out_graph_path")
+	out_map_path= config.get("Web","out_map_path")
+	out_pref	= config.get("Web", "out_pref")
+	host	= config.get("Db","host")
+	dbname  = config.get("Db","dbname")
+	user	= config.get("Db","user")
+	password= config.get("Db","password")
+	web_archive = config.get("Web","web_archive")
+	web_site = config.get("Web","web_site")
 
-    # Set up logging
-    frmt='%(asctime)s %(levelname)-8s %(message)s'
-    logging.basicConfig(level=logging.DEBUG, format=frmt, filename=log_file, filemode='a')
+	# Set up logging
+	frmt='%(asctime)s %(levelname)-8s %(message)s'
+	logging.basicConfig(level=logging.DEBUG, format=frmt, filename=log_file, filemode='a')
 
-    # Now start main function
-    main()
+	# Now start main function
+	main()
