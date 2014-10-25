@@ -1,5 +1,4 @@
 #!/usr/bin/python
-#
 """
 Description:	Read a set of wrfout netcdf file, extract the RAINNC variable, 
 		and X-Y coordinates of each cell into a text file.
@@ -9,13 +8,15 @@ Revisions	12/10/2014 - Added function to compress csv files to tarball
 """
 import netCDF4
 import numpy as np
-import os,csv,argparse,glob,tarfile
+import os,csv,argparse,glob,tarfile,logging
 
 def netcdf_to_text(ncdir,outdir):
 	wrfout_pattern = "wrfout_d03_"
 	wrfoutlist = glob.glob(os.path.join(ncdir,wrfout_pattern+"*"))
+	wrfcnt = len(wrfoutlist)
+	logging.info("Starting netcdf2text on %s file" % wrfcnt)
 	for ncname in wrfoutlist:
-		#print ("Working on: %s" % (ncname,))
+		logging.info("Working on: %s" % (ncname,))
 		ncpath = os.path.join(ncdir, ncname)
 		ncfile = netCDF4.Dataset(ncpath, 'r')
 		lat = ncfile.variables['XLAT'][:]
@@ -25,7 +26,7 @@ def netcdf_to_text(ncdir,outdir):
 		#print ("Dimentions of netCDF variables: %s" % (rain.shape,))
 		# Use the 2nd and third to size the outdata array
 		ncols, nrows = len(rain[0]), len(rain[0][0])
-		#print("Lengths: LAT-%s, LON-%s" % (ncols, nrows))
+		logging.info("Lengths: LAT-%s, LON-%s" % (ncols, nrows))
 		# Output data array will have 3 columns(lat, long, precip) 
 		# and enough rows for all the data cells in original netCDF
 		outdata = np.empty([3,ncols*nrows])
@@ -42,7 +43,7 @@ def netcdf_to_text(ncdir,outdir):
 		
 		datestr = os.path.basename(ncname)[11:24]
 		outname = "precip_csv_"+datestr+".txt"	
-		#print ("Saving to output file: %s\n" % (outname,))	
+		logging.info("Saving to output file: %s\n" % (outname,))	
 		outpath = os.path.join(outdir, outname)
 		csvfile = open(outpath, "w")
 		writer = csv.writer(csvfile)
@@ -63,6 +64,7 @@ def text_to_tarball(outdir):
 	for f in os.listdir('.'):
 		#print "%s and %s" % (f[-4:],  f[:11])
 		if (f[-4:]=='.txt' ) and (f[:11]=='precip_csv_'):
+			logging.info("Adding %s to tarball" % f)
 			arc.add(f)
 
 	arc.close()
@@ -74,6 +76,11 @@ parser.add_argument("-i", "--wrfdir", default=".", required=True, help="Director
 parser.add_argument("-o", "--outdir", default=".", help="Directory to store output csv")
 # Get arguments
 args = parser.parse_args()
+
+# Setup logging
+frmt='%(asctime)s %(levelname)-8s %(message)s'
+log_file=os.path.join(args.outdir, "netcdf2text.log")
+logging.basicConfig(level=logging.DEBUG, format=frmt, filename=log_file, filemode='a')
 # Run the function
 netcdf_to_text(args.wrfdir, args.outdir)
 text_to_tarball(args.outdir)
