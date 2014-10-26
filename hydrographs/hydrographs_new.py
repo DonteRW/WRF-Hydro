@@ -44,8 +44,8 @@ def main():
 	"""
 	#mapdir = get_latest_mapdir()
 	#if mapdir is not None:
-	#   extract_map_data(mapdir)
-	#   create_map_images(mapdir)
+	# extract_map_data(mapdir)
+	# create_map_images(mapdir)
 
 	# Get directory of new rain text files
 	#raindir = get_latest_raindir()
@@ -53,7 +53,7 @@ def main():
 	# Get directory of new frxst drainage data files
 	#datadir = get_latest_datadir()
 	#if datadir is None:
-	#   exit
+	# exit
 	#else:  
 	#   data_rows = parse_frxst(datadir)
 	#
@@ -78,7 +78,7 @@ def main():
 	for the_dir in (data_dir, rain_dir, map_dir):
 		the_dir = os.path.join(src_path, the_dir)
 		for d in os.listdir(the_dir):
-		# Check if the new data dir has been created
+			# Check if the new data dir has been created
 			if os.path.isdir(os.path.join(the_dir, d)):
 				# There is a new directory, now check if there are any file
 				new_data_path = os.path.join(the_dir, d)
@@ -97,23 +97,23 @@ def main():
 							do_loop(data_rows)
 							# INSERT to the database
 							upload_flow_data(data_rows)
-							upload_model_timing(data_rows)
+							upload_model_timing(data_rows, new_data_path)
 							# Send email alerts
 							send_alerts()
 							send_special_alert()
 
 					# The maps
 					if map_dir in the_dir:
-						extract_map_data(new_data_path)
-						create_map_images(new_data_path)
+						# Process only the csv file (not PDFs)
+						logging.debug("Process map in %s" % the_dir)
+						if 'csv' in new_data_path:
+							extract_map_data(new_data_path)
+							create_map_images(new_data_path)
 
 					# The precip file (nothing to do, just go on to copy and archive)
 					# Run the copy_and_archive function for each dir
 					# Pass only the *last part* of the path to the function for creating final archive locations
 					copy_and_archive(the_dir, d)
-			else:
-				# No new data yet, just continue
-				logging.info("No new data")
 
 	logging.info("*** Hydrograph Processing completed ***")
 	# end of main()
@@ -454,72 +454,70 @@ def create_graph(prob, num, disch, hrs, dt):
 
 
 def do_loop(data_rows):
-  """
-  Loops thru the list of station ids, 
-  For each id, search for those lines in data that match that id
-  Obtains the discharge and hour values, and accumulates them into lists
-  Send those lists to the create graph function
-  """
-  # Get the list of station ids
-  ids = get_stationid_list()
+	"""
+	Loops thru the list of station ids, 
+	For each id, search for those lines in data that match that id
+	Obtains the discharge and hour values, and accumulates them into lists
+	Send those lists to the create graph function
+	"""
+	# Get the list of station ids
+	ids = get_stationid_list()
 			
-  for i in range(0,len(ids)):
-    id = ids[i][0]
-    logging.info("Working on station id: %s",str(id))
-    datai = []
-    for row in data_rows:
-    # THe third column (numbered from 0) has the station id
-    # Collect all data for one station into a data array
-      if (int(row[3]) == id):
-	datai.append(row)
+	for i in range(0,len(ids)):
+		id = ids[i][0]
+		logging.info("Working on station id: %s",str(id))
+		datai = []
+		for row in data_rows:
+		# THe third column (numbered from 0) has the station id
+		# Collect all data for one station into a data array
+			if (int(row[3]) == id):
+				datai.append(row)
 	
-    # Initialize the two arrays for hours and discharge
-    hrs=[]
-    disch=[]
-    dis_times=[]
-    max_disch=0
-    if (len(datai) == 0):
-      logging.warning("No data for id: %s", str(id))
-      exit
-    else:
-      # Grab the date for use later in the graph (needed only once)
-      date_str = datai[1][5]
-      #logging.debug("Data for date: ",date_str)
-      max_disch_time = datai[1][dt_str_col]
+		# Initialize the two arrays for hours and discharge
+		hrs=[]
+		disch=[]
+		dis_times=[]
+		max_disch=0
+		if (len(datai) == 0):
+			logging.warning("No data for id: %s", str(id))
+			exit
+		else:
+			# Grab the date for use later in the graph (needed only once)
+			date_str = datai[1][5]
+			#logging.debug("Data for date: ",date_str)
+			max_disch_time = datai[1][dt_str_col]
 
-      for j in range(len(datai)):
-      # Collect the date strings and discharge from this subset of data
-      # Get hour and discharge column from config
-	hr = (int(datai[j][hr_col]))/3600
-	dis_time = matplotlib.dates.datestr2num(datai[j][dt_str_col])
-      # Limit graph from minimum hour (from config) to max hour 
-      # Never mind this 48 hour check, depend only on the length of the run
-      #if (hr>min_hr and hr<=max_hr):
-	hrs.append(hr)
-	dis_times.append(dis_time)
-	# Get "disch_col" column: has the discharge in cubic meters
-	dis = float(datai[j][disch_col])
-	disch.append(dis)
-	# Keep track of the maximum discharge and time for this hydro station
-	if dis>max_disch:
-	  max_disch = dis
-	  max_disch_time = datai[j][dt_str_col]
+			for j in range(len(datai)):
+				# Collect the date strings and discharge from this subset of data
+				# Get hour and discharge column from config
+				hr = (int(datai[j][hr_col]))/3600
+				dis_time = matplotlib.dates.datestr2num(datai[j][dt_str_col])
+				# Limit graph from minimum hour (from config) to max hour 
+				# Never mind this 48 hour check, depend only on the length of the run
+				#if (hr>min_hr and hr<=max_hr):
+				hrs.append(hr)
+				dis_times.append(dis_time)
+				# Get "disch_col" column: has the discharge in cubic meters
+				dis = float(datai[j][disch_col])
+				disch.append(dis)
+				# Keep track of the maximum discharge and time for this hydro station
+				if dis>max_disch:
+					max_disch = dis
+					max_disch_time = datai[j][dt_str_col]
 
-
-      #logging.debug( "Using: %s data points.", str(len(hrs)))
-      # Now use the max_disch to update the maxflows database table
-      # and get back the flow_level for this station
-      station_num = get_station_num(int(id))
-      # Continue ONLY if level actually has value
-      try:
-	  level = update_maxflow(int(station_num), max_disch, max_disch_time)
-	  logging.debug( "Station num: %s has max discharge: %s", str(station_num), str(max_disch))
-	# Find which return period this max flow is in
-	  prob_str = probability_period(level) 
-	# Create the graph
-	  create_graph(prob_str, station_num, disch, dis_times, date_str)
-      except:
-	  logging.warning( "No station with id: %s",str(id))
+			# Now use the max_disch to update the maxflows database table
+			# and get back the flow_level for this station
+			station_num = get_station_num(int(id))
+			# Continue ONLY if level actually has value
+			try:
+				level = update_maxflow(int(station_num), max_disch, max_disch_time)
+				#logging.debug( "Station num: %s has max discharge: %s", str(station_num), str(max_disch))
+				# Find which return period this max flow is in
+				prob_str = probability_period(level) 
+				# Create the graph
+				create_graph(prob_str, station_num, disch, dis_times, date_str)
+			except:
+				logging.warning( "No station with id: %s",str(id))
 
 
 #def get_latest_raindir():
@@ -639,11 +637,17 @@ def extract_map_data(map_dir):
 	"""
 	global map_file
 
-	p = tarfile.open(os.path.join(map_dir, map_file))
+	arc = os.path.join(map_dir, map_file)
+	p = tarfile.open(arc)
 	p.extractall(path=map_dir)
 	p.close()
 	cnt = len([f for f in os.listdir(map_dir) 
 		 if f.endswith('.txt') and os.path.isfile(os.path.join(map_dir, f))])
+	if cnt>0:
+		logging.info("Untarred %s csv files from %s" % (cnt,arc))
+	else:
+		logging.warning("Untar of %s FAILED" % arc)
+
 	return cnt
 
 
@@ -658,7 +662,7 @@ def create_map_images(map_dir):
 	
 	grass_script = 'create_precip_map.sh'
 	grass_script_path = os.path.join('/usr/local/sbin', grass_script)
-	cmd = 'su - ihs -c "%s %s"' % (grass_script_path,map_dir) 
+	cmd = 'su - ihs -c "%s %s 2>/dev/null"' % (grass_script_path,map_dir) 
 	logging.debug("Starting GRASS script: %s" % (cmd,))
 	retn = subprocess.call(cmd, shell=True)
 	if (retn == 0):
@@ -669,14 +673,26 @@ def create_map_images(map_dir):
 			logging.info("Image files copied to: %s " % (out_map_path,))
 		except (IOError, OSError) as e:
 			logging.error("Error %s from: %s to: %s", (repr(e), map_dir, out_map_path))
-		# Reset the symlink
+		# Reset the symlinks in the web directory of maps
 		link_name = "precip_animated.gif"
 		link_path = os.path.join(out_map_path, link_name)
 		if os.path.islink(link_path):
 			os.unlink(link_path)
-		os.symlink(os.path.join(out_map_dir, map_dir, link_name), link_path)
-		logging.info("Precip animation now linked to: %s" % os.path.join(out_map_dir, map_dir, link_name))
-			
+
+		link_src = os.path.join(out_map_path, os.path.basename(map_dir), link_name)
+		os.symlink(link_src, link_path)
+		logging.info("Precip animation now linked to: %s" % link_src) 
+		
+		# Also link to the directory of png images
+		link_dir_name = "precip_images"
+		link_dir_path = os.path.join(out_map_path, link_dir_name)
+		if os.path.islink(link_dir_path):
+			os.unlink(link_dir_path)
+
+		link_dir_src = os.path.join(out_map_path, os.path.basename(map_dir))
+		os.symlink(link_dir_src, link_dir_path)
+		logging.info("Precip images directory now linked to: %s" % link_dir_src) 
+
 	else:
 		logging.error("GRASS script FAILED")
 	
@@ -785,72 +801,66 @@ def parse_frxst(new_data_dir):
 
 
 def upload_flow_data(data_rows):
-    """
-    Creates a database connection,
-    inserts all rows from the data_rows array
-    into the db table predicted_flow_data
-    """
-    # First get configurations
-    global host
-    global dbname
-    global user
-    global password
+	"""
+	Creates a database connection,
+	inserts all rows from the data_rows array
+	into the db table predicted_flow_data
+	"""
+	# First get configurations
+	global host
+	global dbname
+	global user
+	global password
 
-    conn_string = "host='"+host+"' dbname='"+dbname+"' user='"+user+"' password='"+password+"'"
-    try:
-        conn = psycopg2.connect(conn_string)
-	curs = conn.cursor()
-	for row in data_rows:
-	    dt = row[1]+" "+row[2]
-	    id = row[3]
-	    mf = row[4]
-	    data = (dt, id, mf)
-	    sql = "INSERT INTO model_flow_data (model_timestamp, station_id, max_flow) VALUES (%s, %s, %s)"
-	    curs.execute(sql,data)
+	conn_string = "host='"+host+"' dbname='"+dbname+"' user='"+user+"' password='"+password+"'"
+	try:
+		conn = psycopg2.connect(conn_string)
+		curs = conn.cursor()
+		logging.info("Beginning upload of flow data to database")
+		for row in data_rows:
+			dt = row[1]+" "+row[2]
+			id = row[3]
+			mf = row[4]
+			data = (dt, id, mf)
+			sql = "INSERT INTO model_flow_data (model_timestamp, station_id, max_flow) VALUES (%s, %s, %s)"
+			curs.execute(sql,data)
 
-	    conn.commit()
-            logging.info("Database upload completed")
+		conn.commit()
+		logging.info("Database upload completed")
 
-    except psycopg2.DatabaseError as e:
-        logging.error('Error %s', e)
-	sys.exit(1)
-    finally:
-        if conn:
-            conn.close()
+	except psycopg2.DatabaseError as e:
+		logging.error('Error %s', repr(e))
+		sys.exit(1)
+	finally:
+		if conn:
+			conn.close()
 
 
-def upload_model_timing(data_rows):
+
+def upload_model_timing(data_rows, data_dir):
 	"""
 	Grab the init date-time of the gfs data (from the first row of data_rows)
 	and the time the model completed (from the last_timestamp file)
 	INSERT a row into the model_timing database table with three timestamps:
 	gfs init, wrf completed, and graphs available
 	"""
-	global ts_file
 	global host
 	global dbname
 	global user
 	global password
+	global data_file
 
 	# Get init hour from the data
 	gfs_init = data_rows[1][5]
-	# Read existing timestamp from last timestamp file
-	try:
-		f = open(ts_file,"r+")
-		last_ts = float(f.readline())
+	# Get time model completed from a data file
 
-	except IOError as e:
-	# Can't get a value from the last timesatmp file. Assume 0
-		logging.warning( "Can't access timestamp file: %s", e.strerror)
-		last_ts = 0
-	
-	f.close()
-
-	model_complete = datetime.datetime.fromtimestamp(last_ts).strftime('%Y-%m-%d %H:%M')
+	mod_time = os.path.getmtime(os.path.join(data_dir, data_file))
+	model_complete = datetime.datetime.fromtimestamp(mod_time).strftime('%Y-%m-%d %H:%M')
 	graphs_complete = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
 	#print "GFS: "+str(gfs_init)+", MODEL: "+str(model_complete)+", GRAPHS: "+str(graphs_complete) 
 
 	conn_string = "host='"+host+"' dbname='"+dbname+"' user='"+user+"' password='"+password+"'"
+	logging.info("Beginning upload of model timing to database")
 	try:
 		conn = psycopg2.connect(conn_string)
 		curs = conn.cursor()
@@ -862,7 +872,7 @@ def upload_model_timing(data_rows):
 		conn.commit()
 
 	except psycopg2.DatabaseError, e:
-		logging.error('Error %s', e)
+		logging.error('Error %s', repr(e))
 		sys.exit(1)
 	finally:
 		if conn:
@@ -926,33 +936,38 @@ def copy_and_archive (the_dir, new_data):
 	global web_site
 	global web_archive
 
-	logging.warning("Configs: the_dir=%s new_data=%s " % (the_dir, new_data))
+	#logging.warning("Configs: the_dir=%s new_data=%s " % (the_dir, new_data))
 	if ('Data' in the_dir):
 		dst = os.path.join(web_archive, dst_data_suffix)
 		dst_arc = os.path.join(arc_path, dst_data_suffix)
-		logging.info("Copying to %s" % dst)
+		logging.info("Copying frxst to %s" % dst)
 	elif ('Rain' in the_dir):
 		dst = os.path.join(web_archive, dst_rain_suffix)
 		dst_arc = os.path.join(arc_path, dst_rain_suffix)
-		logging.info("Copying to %s" % dst)
+		logging.info("Copying rain to %s" % dst)
 	elif ('Maps' in the_dir):
-		dst = os.path.join(web_site, dst_maps_suffix)
+		# Separate between the csv files and the PDFs
+		if "csv" in new_data:
+			dst = os.path.join(web_site, dst_maps_suffix)
+		elif "map" in new_data:
+			dst + os.path.join(web_archive, dst_rain_suffix)
+
 		dst_arc = os.path.join(arc_path, dst_maps_suffix)
-		logging.info("Copying to %s" % dst)
+		logging.info("Copying maps to %s" % dst)
 	else:
 		logging.error("Unknown source data dir: %s" % the_dir)
 		os.exit(1)
 
 	full_src = os.path.join(the_dir, new_data)
 	full_dst = os.path.join(dst, new_data)
-	logging.warning("Copying and archiving: Source=%s\tDest=%s\tArchive=%s" % (full_src, full_dst, dst_arc))
+	#logging.warning("Copying and archiving: Source=%s\tDest=%s\tArchive=%s" % (full_src, full_dst, dst_arc))
 	# copy tree to destination
 	try:
 		shutil.copytree(full_src, full_dst)
 		logging.info("Data files from %s copied to: %s" % (full_src, full_dst))
 	except (IOError, OSError) as e:
 		logging.error("Error %s: copying from: %s to: %s FAILED" % (repr(e), full_src, full_dst))
-			
+	
 	# Create tar archive of tree
 	tarname = new_data+".tar.gz"
 	tarpath = os.path.join(dst_arc, tarname)
@@ -965,6 +980,19 @@ def copy_and_archive (the_dir, new_data):
 		logging.info("Source dir %s removed" % full_src)
 	except Exception as e:
 		logging.error("Error: %s creating tar archive: %s FAILED" % (repr(e),tarpath))
+
+	# After archiving, remove unnecessary files from the precip_maps directory of web site
+	web_maps = os.path.join(web_site, dst_maps_suffix, new_data)
+	cnt = 0
+	for f in os.listdir(web_maps):
+		if ".tar.gz" in f:
+			os.unlink(os.path.join(web_maps,f))
+			cnt = cnt+1
+		if ".txt" in f:
+			os.unlink(os.path.join(web_maps,f))
+			cnt = cnt+1
+
+	logging.warning("Removed %s files from web directory: %s" % (cnt,web_maps) )
 
 
 
@@ -997,7 +1025,7 @@ if __name__ == "__main__":
 	arc_path	= config.get("General","arc_path")
 	disch_col   = config.getint("General", "disch_col")
 	dt_str_col  = config.getint("General", "dt_str_col")
-	data_file   = config.get("General", "disch_data_file")
+	data_file   = config.get("General", "frxst_data_file")
 	precip_file = config.get("General", "precip_data_file")
 	precip_pdf  = config.get("General", "precip_pdf_file")
 	map_file	= config.get("General", "map_data_file")
@@ -1015,6 +1043,6 @@ if __name__ == "__main__":
 	# Set up logging
 	frmt='%(asctime)s %(levelname)-8s %(message)s'
 	logging.basicConfig(level=logging.DEBUG, format=frmt, filename=log_file, filemode='a')
-
-	# Now start main function
+	# Now start work
 	main()
+
